@@ -5,8 +5,8 @@
 ;; Author: Claude Code + Rolf Håvard Blindheim<rhblind@gmail.com>
 ;; URL: https://github.com/rhblind/emacs-mcp-server
 ;; Keywords: mcp, protocol, integration, tools
-;; Version: 0.3.0
-;; Package-Requires: ((emacs "28.1"))
+;; Version: 0.4.0
+;; Package-Requires: ((emacs "27.1"))
 
 ;; This file is NOT part of GNU Emacs.
 
@@ -61,7 +61,7 @@
 
 ;;; Constants
 
-(defconst mcp-server-version "0.1.0"
+(defconst mcp-server-version "0.4.0"
   "Version of the Emacs MCP server.")
 
 (defconst mcp-server-protocol-version "2024-11-05"
@@ -75,11 +75,16 @@
 (defvar mcp-server-running nil
   "Whether the MCP server is currently running.")
 
-(defvar mcp-server-debug nil
-  "Whether to enable debug logging.")
+(defcustom mcp-server-debug nil
+  "Whether to enable debug logging."
+  :type 'boolean
+  :group 'mcp-server)
 
-(defvar mcp-server-default-transport "unix"
-  "Default transport to use when none is specified.")
+(defcustom mcp-server-default-transport "unix"
+  "Default transport to use when none is specified."
+  :type '(choice (const :tag "Unix domain socket" "unix")
+                 (const :tag "TCP socket" "tcp"))
+  :group 'mcp-server)
 
 ;;; Customization Group
 
@@ -188,10 +193,26 @@ HOST and PORT specify the bind address (planned for future implementation)."
   (interactive "P")
   (mcp-server--start-with-transport "tcp" debug host port))
 
+(defun mcp-server--transport-alive-p ()
+  "Check if the current transport is actually alive.
+Returns nil if no transport or transport is dead."
+  (when mcp-server-current-transport
+    (let ((status (mcp-server-transport-status mcp-server-current-transport)))
+      (and status
+           (alist-get 'running status)
+           (memq (alist-get 'server-process status) '(listen open run))))))
+
 (defun mcp-server--start-with-transport (transport-name debug &rest args)
   "Start MCP server with TRANSPORT-NAME, DEBUG flag and ARGS."
   (when mcp-server-running
-    (error "MCP server is already running"))
+    ;; Check if transport is actually alive
+    (if (mcp-server--transport-alive-p)
+        (error "MCP server is already running")
+      ;; Transport died but flag wasn't cleared - clean up
+      (mcp-server--info "Stale server state detected, cleaning up...")
+      (setq mcp-server-running nil)
+      (when mcp-server-current-transport
+        (ignore-errors (mcp-server-transport-stop mcp-server-current-transport)))))
   
   (setq mcp-server-debug debug)
   (setq mcp-server-current-transport transport-name)
@@ -202,7 +223,6 @@ HOST and PORT specify the bind address (planned for future implementation)."
   ;; Initialize components
   (mcp-server-tools-init)
   (mcp-server-security-init)
-  (mcp-server-emacs-tools-register)
   
   ;; Start the transport
   (condition-case err
@@ -248,11 +268,12 @@ If DEBUG is non-nil, enable debug logging."
 ;;; Message Handling
 
 (defun mcp-server--handle-message (message &optional client-id)
-  "Handle incoming MCP MESSAGE from optional CLIENT-ID."
+  "Handle incoming MCP MESSAGE from optional CLIENT-ID.
+Uses `catch'/`throw' for early exit after successful response send."
   (mcp-server--debug "Handling message from %s: %s" (or client-id "unknown") message)
-  
+
   (condition-case err
-      (catch 'mcp-handled
+      (catch 'mcp-handled  ; throw here to exit after sending response
         (let ((method (alist-get 'method message))
               (id (alist-get 'id message))
               (params (alist-get 'params message)))
@@ -359,19 +380,13 @@ If DEBUG is non-nil, enable debug logging."
                 (puthash "jsonrpc" "2.0" response-hash)
                 (puthash "id" id response-hash)
                 (puthash "result" result-hash response-hash)
-                ;; Send using raw JSON
+                ;; Send using raw JSON via transport interface
                 (let ((json-str (json-serialize response-hash)))
                   (mcp-server--debug "Direct JSON: %s" json-str)
-                  ;; Send the JSON directly by getting the client process
-                  (let* ((client-data (mcp-server-transport-unix--get-client client-id))
-                         (process (car client-data)))
-                    (if (and process (eq (process-status process) 'open))
-                        (progn
-                          (process-send-string process (concat json-str "\n"))
-                          (mcp-server--debug "Direct send completed successfully")
-                          ;; Exit cleanly without returning to main handler
-                          (throw 'mcp-handled 'success))
-                      (error "Client process not available for direct send")))))
+                  (mcp-server-transport-send-raw mcp-server-current-transport client-id json-str)
+                  (mcp-server--debug "Direct send completed successfully")
+                  ;; Exit cleanly without returning to main handler
+                  (throw 'mcp-handled 'success)))
             (error
              ;; If direct approach fails, fall back to error response
              (mcp-server--debug "Direct send failed: %s" (error-message-string direct-err))
@@ -616,9 +631,9 @@ SOCKET-NAME can be:
 
 ;;; Entry Point for Subprocess
 
-;;;###autoload
 (defun mcp-server-main ()
-  "Main entry point for running MCP server as subprocess."
+  "Main entry point for running MCP server as subprocess.
+This is an internal function, not intended for interactive use."
   (interactive)
   ;; Enable debug logging for subprocess mode
   (setq mcp-server-debug t)
@@ -626,9 +641,9 @@ SOCKET-NAME can be:
   ;; Start the server with default transport
   (mcp-server-start t)
   
-  ;; Keep the process alive
+  ;; Keep the process alive with proper event handling
   (while mcp-server-running
-    (sleep-for 0.1)))
+    (sit-for 0.1)))
 
 (provide 'mcp-server)
 

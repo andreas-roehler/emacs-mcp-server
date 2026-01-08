@@ -6,12 +6,163 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is an Emacs MCP (Model Context Protocol) Server implementation written in pure Elisp. It enables direct integration between Large Language Models and Emacs internals by exposing Emacs functionality through standardized MCP tools.
 
-## Code generation.
+## Code Generation
 
-- ALWAYS ensure that parantheses are perfectly balanced!
+- ALWAYS ensure that parentheses are perfectly balanced!
 - Be as concise as possible.
 - Be extremely careful with the protocol and transport layers code. Always test code if making changes to it.
-- Follow idiomatic ELisp conventions.
+- Follow idiomatic Elisp conventions.
+
+## Elisp Code Conventions
+
+### Naming Conventions
+
+**Private symbols use double-dash prefix:**
+```elisp
+;; Public API
+(defun mcp-server-start () ...)
+(defvar mcp-server-running nil)
+
+;; Private/internal (not for external use)
+(defun mcp-server--handle-message () ...)
+(defvar mcp-server--client-counter 0)
+```
+
+**Package prefixes are mandatory:**
+- All symbols must start with `mcp-server-` (or module-specific like `mcp-server-tools-`)
+- This prevents namespace pollution
+
+### Variables: defcustom vs defvar
+
+**Use `defcustom` for user-configurable settings:**
+```elisp
+(defcustom mcp-server-debug nil
+  "Whether to enable debug logging."
+  :type 'boolean
+  :group 'mcp-server)
+```
+
+**Use `defvar` only for internal state:**
+```elisp
+(defvar mcp-server-running nil
+  "Whether the MCP server is currently running.")
+```
+
+**All defcustom must include:**
+- `:type` specification
+- `:group 'mcp-server` (or appropriate subgroup)
+- Descriptive docstring
+
+### String Comparisons
+
+**Always use `string=` for string equality:**
+```elisp
+;; Correct
+(when (string= method "initialize") ...)
+
+;; Avoid for strings (works but less explicit)
+(when (equal method "initialize") ...)
+```
+
+### Error Handling
+
+**Standard pattern uses `condition-case`:**
+```elisp
+(condition-case err
+    (do-something-risky)
+  (error
+   (handle-error (error-message-string err))))
+```
+
+**Use `throw/catch` only for non-local exit (not errors):**
+```elisp
+;; Used in message handler for early exit after successful send
+(catch 'mcp-handled
+  (when success
+    (throw 'mcp-handled 'success))
+  (fallback-action))
+```
+
+**Signal errors with `error`:**
+```elisp
+(unless tool
+  (error "Tool not found: %s" name))
+```
+
+### JSON Schema Conventions
+
+**Use vectors for `required` fields:**
+```elisp
+;; Correct - vector
+:input-schema '((type . "object")
+                (required . ["expression"]))
+
+;; Wrong - list (won't serialize correctly)
+:input-schema '((type . "object")
+                (required . ("expression")))
+```
+
+### Autoload Cookies
+
+**Use `;;;###autoload` only for user-facing interactive commands:**
+```elisp
+;;;###autoload
+(defun mcp-server-start () ...)      ; User command - autoload
+
+(defun mcp-server-main () ...)        ; Internal entry point - no autoload
+```
+
+### Abstraction Boundaries
+
+**Never call private (`--`) functions from other modules:**
+```elisp
+;; Wrong - reaching into transport internals
+(mcp-server-transport-unix--get-client client-id)
+
+;; Correct - use public API
+(mcp-server-transport-send-raw transport-name client-id json-str)
+```
+
+### Event Loop Best Practices
+
+**Use `sit-for` instead of `sleep-for` for waiting:**
+```elisp
+;; Correct - allows event processing
+(while running
+  (sit-for 0.1))
+
+;; Avoid - blocks event processing
+(while running
+  (sleep-for 0.1))
+```
+
+### Documentation
+
+**Every public function needs a docstring:**
+```elisp
+(defun mcp-server-tools-call (name arguments)
+  "Call tool NAME with ARGUMENTS.
+Returns a list of content items in MCP format.
+Respects `mcp-server-tools-filter' - disabled tools cannot be called."
+  ...)
+```
+
+### Struct Definitions
+
+**Use `cl-defstruct` for data structures:**
+```elisp
+(cl-defstruct mcp-server-tool
+  "Structure representing an MCP tool."
+  name
+  title
+  description
+  input-schema
+  function)
+```
+
+### Required Emacs Version
+
+This project requires **Emacs 27.1+** for native JSON support (`json-serialize`, `json-parse-string`).
 
 ## Key Architecture Components
 
@@ -28,8 +179,9 @@ The server uses a pluggable transport architecture:
 
 ### Tool and Security Framework
 - `mcp-server-tools.el` - Tool registry and execution framework
-- `mcp-server-emacs-tools.el` - Emacs-specific tool implementations
+- `mcp-server-emacs-tools.el` - Tool loader (loads tools from `tools/` directory)
 - `mcp-server-security.el` - Permission management and sandboxing
+- `tools/` - Individual tool implementations (self-registering modules)
 
 ## Essential Commands
 
@@ -87,10 +239,16 @@ The server supports multiple socket naming strategies via `mcp-server-socket-nam
 
 ## MCP Tool Registry
 
-The server exposes the following tool:
+The server exposes the following tools:
 
-### Elisp Execution
 - `eval-elisp` - Execute arbitrary Elisp expressions safely
+- `get-diagnostics` - Get flycheck/flymake diagnostics from project buffers
+
+Tools can be selectively enabled via `mcp-server-emacs-tools-enabled`:
+```elisp
+(setq mcp-server-emacs-tools-enabled 'all)              ; All tools (default)
+(setq mcp-server-emacs-tools-enabled '(get-diagnostics)) ; Only diagnostics
+```
 
 ## Security Model
 
@@ -150,17 +308,59 @@ if client.connect() and client.initialize():
 ## Development Workflow
 
 ### Adding New Tools
+
+Tools use a **self-registration pattern**: each tool file registers itself at load time via `mcp-server-register-tool`. This eliminates manual registry maintenance.
+
+**Step 1:** Create a new file in `tools/` directory:
+
 ```elisp
-(mcp-server-tools-register
- "tool-name"
- "Display Title"
- "Description of functionality"
- '((type . "object")
-   (properties . ((param . ((type . "string")))))
-   (required . ["param"]))
- (lambda (args)
-   (let ((param (alist-get 'param args)))
-     (format "Result: %s" param))))
+;;; tools/mcp-server-emacs-tools-my-tool.el
+(require 'mcp-server-tools)
+
+(defun mcp-server-emacs-tools--my-tool-handler (args)
+  "Handle my-tool invocation with ARGS."
+  (let ((param (alist-get 'param args)))
+    (format "Result: %s" param)))
+
+;; Self-registration: this runs when the file is loaded
+(mcp-server-register-tool
+ (make-mcp-server-tool
+  :name "my-tool"
+  :title "My Tool"
+  :description "Description of functionality"
+  :input-schema '((type . "object")
+                  (properties . ((param . ((type . "string")))))
+                  (required . ["param"]))  ; Note: use vector, not list
+  :function #'mcp-server-emacs-tools--my-tool-handler))
+
+(provide 'mcp-server-emacs-tools-my-tool)
+```
+
+**Step 2:** Register in `mcp-server-emacs-tools.el`:
+
+```elisp
+;; Add to mcp-server-emacs-tools--available alist:
+(defconst mcp-server-emacs-tools--available
+  '((eval-elisp . mcp-server-emacs-tools-eval-elisp)
+    (get-diagnostics . mcp-server-emacs-tools-diagnostics)
+    (my-tool . mcp-server-emacs-tools-my-tool))  ; Add your tool here
+  "Alist mapping tool names (symbols) to their feature names.")
+```
+
+### Tool Visibility and Filtering
+
+Tools are filtered at runtime via `mcp-server-tools-filter`. The `mcp-server-emacs-tools` module sets this to check `mcp-server-emacs-tools-enabled`:
+
+- **Disabled tools are invisible** - They don't appear in `tools/list` responses
+- **Disabled tools are blocked** - Calling them via `tools/call` returns an error
+- **Changes take effect immediately** - No server restart needed
+
+```elisp
+;; Enable only specific tools
+(setq mcp-server-emacs-tools-enabled '(get-diagnostics))
+
+;; Re-enable all tools
+(setq mcp-server-emacs-tools-enabled 'all)
 ```
 
 ### Testing Changes
@@ -185,22 +385,20 @@ mcp-server/
 ├── mcp-server-transport-tcp.el      # TCP transport (planned)
 ├── mcp-server-tools.el              # Tool registry and execution
 ├── mcp-server-security.el           # Security and sandboxing
-├── mcp-server-emacs-tools.el        # Emacs-specific tool implementations
+├── mcp-server-emacs-tools.el        # Tool loader (loads from tools/)
+├── tools/                           # Individual tool implementations
+│   ├── mcp-server-emacs-tools-eval-elisp.el      # eval-elisp tool
+│   └── mcp-server-emacs-tools-diagnostics.el     # get-diagnostics tool
 ├── test/                            # Test suite directory
 │   ├── config/                      # Test configuration files
-│   │   ├── test-config.el           # Main test configuration
-│   │   ├── minimal-test-config.el   # Minimal test configuration
-│   │   └── test-json-false.el       # JSON serialization tests
+│   ├── fixtures/                    # Test helpers and utilities
+│   ├── unit/                        # Unit tests
+│   │   ├── test-mcp-emacs-tools.el  # Tool-specific tests
+│   │   └── ...
 │   ├── scripts/                     # Test runner scripts
-│   │   ├── test-runner.sh           # Comprehensive test suite
-│   │   ├── start-test-server.sh     # Test server startup
-│   │   ├── test-hello-world.sh      # Hello world test
-│   │   ├── test-hello-world.py      # Python test script
-│   │   └── debug-test.py            # Debug test utilities
+│   │   └── test-runner.sh           # Comprehensive test suite
 │   └── integration/                 # Integration test scripts
-│       ├── test-unix-socket-fixed.sh # Fixed Unix socket tests
-│       ├── test-unix-socket.sh      # Original socket tests
-├── mcp-wrapper.py                   # Python wrapper for MCP clients  
+├── mcp-wrapper.py                   # Python wrapper for MCP clients
 └── mcp-wrapper.sh                   # Shell wrapper for MCP clients
 ```
 

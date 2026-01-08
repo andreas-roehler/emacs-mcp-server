@@ -28,6 +28,12 @@
 (defvar mcp-server-tools--initialized nil
   "Whether the tools system has been initialized.")
 
+(defvar mcp-server-tools-filter nil
+  "Predicate function to filter which tools are exposed.
+When non-nil, should be a function that takes a tool name (string)
+and returns non-nil if the tool should be included in listings and
+available for execution.  When nil, all registered tools are exposed.")
+
 ;;; Tool Definition Structure
 
 (cl-defstruct mcp-server-tool
@@ -42,8 +48,29 @@
 
 ;;; Tool Registration
 
+(defun mcp-server-register-tool (tool)
+  "Register TOOL, an `mcp-server-tool' struct.
+This is the preferred declarative interface for tool registration.
+
+Example:
+  (mcp-server-register-tool
+   (make-mcp-server-tool
+    :name \"my-tool\"
+    :title \"My Tool\"
+    :description \"Does something useful.\"
+    :input-schema \\='((type . \"object\") ...)
+    :function #\\='my-tool-handler))"
+  (unless (mcp-server-tool-p tool)
+    (error "Expected mcp-server-tool struct, got %s" (type-of tool)))
+  (unless (mcp-server-tool-name tool)
+    (error "Tool must have a name"))
+  (puthash (mcp-server-tool-name tool) tool mcp-server-tools--registry)
+  tool)
+
 (defun mcp-server-tools-register (name title description input-schema function &optional output-schema annotations)
-  "Register a new MCP tool.
+  "Register a new MCP tool (legacy interface).
+Prefer `mcp-server-register-tool' for new tools.
+
 NAME is the unique tool identifier.
 TITLE is the human-readable display name.
 DESCRIPTION explains what the tool does.
@@ -51,16 +78,15 @@ INPUT-SCHEMA is a JSON Schema for validating inputs.
 FUNCTION is the elisp function to execute.
 OUTPUT-SCHEMA is an optional JSON Schema for outputs.
 ANNOTATIONS provide additional metadata."
-  (let ((tool (make-mcp-server-tool
-               :name name
-               :title title
-               :description description
-               :input-schema input-schema
-               :output-schema output-schema
-               :function function
-               :annotations annotations)))
-    (puthash name tool mcp-server-tools--registry)
-    tool))
+  (mcp-server-register-tool
+   (make-mcp-server-tool
+    :name name
+    :title title
+    :description description
+    :input-schema input-schema
+    :output-schema output-schema
+    :function function
+    :annotations annotations)))
 
 (defmacro mcp-server-tools-define (name title description input-schema &rest body)
   "Define a new MCP tool with NAME, TITLE, DESCRIPTION, INPUT-SCHEMA and BODY.
@@ -76,20 +102,29 @@ This is a convenience macro for registering tools."
 
 ;;; Tool Listing
 
+(defun mcp-server-tools--enabled-p (name)
+  "Return non-nil if tool NAME is enabled.
+A tool is enabled if `mcp-server-tools-filter' is nil or returns
+non-nil for NAME."
+  (or (null mcp-server-tools-filter)
+      (funcall mcp-server-tools-filter name)))
+
 (defun mcp-server-tools-list ()
-  "Return a list of all registered tools in MCP format."
+  "Return a list of all enabled tools in MCP format.
+Tools are filtered by `mcp-server-tools-filter' if set."
   (let ((tools '()))
     (maphash
      (lambda (name tool)
-       (push `((name . ,name)
-               (title . ,(mcp-server-tool-title tool))
-               (description . ,(mcp-server-tool-description tool))
-               (inputSchema . ,(mcp-server-tool-input-schema tool))
-               ,@(when (mcp-server-tool-output-schema tool)
-                   `((outputSchema . ,(mcp-server-tool-output-schema tool))))
-               ,@(when (mcp-server-tool-annotations tool)
-                   `((annotations . ,(mcp-server-tool-annotations tool)))))
-             tools))
+       (when (mcp-server-tools--enabled-p name)
+         (push `((name . ,name)
+                 (title . ,(mcp-server-tool-title tool))
+                 (description . ,(mcp-server-tool-description tool))
+                 (inputSchema . ,(mcp-server-tool-input-schema tool))
+                 ,@(when (mcp-server-tool-output-schema tool)
+                     `((outputSchema . ,(mcp-server-tool-output-schema tool))))
+                 ,@(when (mcp-server-tool-annotations tool)
+                     `((annotations . ,(mcp-server-tool-annotations tool)))))
+               tools)))
      mcp-server-tools--registry)
     (nreverse tools)))
 
@@ -175,11 +210,14 @@ Provides basic type checking and required property validation."
 
 (defun mcp-server-tools-call (name arguments)
   "Call tool NAME with ARGUMENTS.
-Returns a list of content items in MCP format."
+Returns a list of content items in MCP format.
+Respects `mcp-server-tools-filter' - disabled tools cannot be called."
   (let ((tool (mcp-server-tools-get name)))
     (unless tool
       (error "Tool not found: %s" name))
-    
+    (unless (mcp-server-tools--enabled-p name)
+      (error "Tool is disabled: %s" name))
+
     ;; Execute the tool function with security sandbox
     (condition-case err
         (let ((result (funcall (mcp-server-tool-function tool) arguments)))
@@ -212,14 +250,13 @@ Returns a list of content items in MCP format."
 ;;; Initialization and Cleanup
 
 (defun mcp-server-tools-init ()
-  "Initialize the tools system."
-  (unless mcp-server-tools--initialized
-    (clrhash mcp-server-tools--registry)
-    (setq mcp-server-tools--initialized t)))
+  "Initialize the tools system.
+Tools registered before this call are preserved."
+  (setq mcp-server-tools--initialized t))
 
 (defun mcp-server-tools-cleanup ()
-  "Clean up the tools system."
-  (clrhash mcp-server-tools--registry)
+  "Clean up the tools system.
+Tool definitions are preserved since they self-register on require."
   (setq mcp-server-tools--initialized nil))
 
 (defun mcp-server-tools-clear ()
