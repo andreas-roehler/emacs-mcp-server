@@ -141,6 +141,19 @@ Retrieves errors and warnings from flycheck or flymake (auto-detected per buffer
 (setq mcp-server-socket-name "custom")  ; Custom: emacs-mcp-server-custom.sock
 ```
 
+**Tool selection:** Choose which tools to enable:
+
+```elisp
+;; Enable all tools (default)
+(setq mcp-server-emacs-tools-enabled 'all)
+
+;; Enable only specific tools (disable eval-elisp for security)
+(setq mcp-server-emacs-tools-enabled '(get-diagnostics))
+
+;; Enable only eval-elisp
+(setq mcp-server-emacs-tools-enabled '(eval-elisp))
+```
+
 **Other configuration options:**
 
 ```elisp
@@ -158,7 +171,7 @@ Retrieves errors and warnings from flycheck or flymake (auto-detected per buffer
 
 > [!WARNING]
 > The MCP server implements certain security measures to protect your Emacs environment and sensitive data from unauthorized access by LLMs.
-> However, the `eval-elisp` tool enables arbitrary evaluation of Elisp code in your Emacs process and therefore by definition enabling remote code execution for the LLM.
+> However, the `eval-elisp` tool enables arbitrary evaluation of Elisp code in your Emacs process and therefore by definition enables remote code execution for the LLM.
 > **Use this tool with extreme caution!**
 
 ### Security Features

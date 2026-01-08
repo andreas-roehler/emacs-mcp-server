@@ -93,6 +93,12 @@ The server exposes the following tools:
 - `eval-elisp` - Execute arbitrary Elisp expressions safely
 - `get-diagnostics` - Get flycheck/flymake diagnostics from project buffers
 
+Tools can be selectively enabled via `mcp-server-emacs-tools-enabled`:
+```elisp
+(setq mcp-server-emacs-tools-enabled 'all)              ; All tools (default)
+(setq mcp-server-emacs-tools-enabled '(get-diagnostics)) ; Only diagnostics
+```
+
 ## Security Model
 
 ### Permission System

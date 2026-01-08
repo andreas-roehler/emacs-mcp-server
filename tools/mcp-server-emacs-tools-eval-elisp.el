@@ -19,16 +19,18 @@
           (format "%S" (mcp-server-security-safe-eval (car form))))
       (error (format "Error: %s" (error-message-string err))))))
 
-(mcp-server-register-tool
- (make-mcp-server-tool
-  :name "eval-elisp"
-  :title "Execute Elisp Expression"
-  :description "Execute arbitrary Elisp code and return the result."
-  :input-schema '((type . "object")
-                  (properties . ((expression . ((type . "string")
-                                                (description . "The Elisp expression to evaluate")))))
-                  (required . ("expression")))
-  :function #'mcp-server-emacs-tools--eval-elisp-handler))
+(defun mcp-server-emacs-tools--eval-elisp-register ()
+  "Register the eval-elisp MCP tool."
+  (mcp-server-register-tool
+   (make-mcp-server-tool
+    :name "eval-elisp"
+    :title "Execute Elisp Expression"
+    :description "Execute arbitrary Elisp code and return the result."
+    :input-schema '((type . "object")
+                    (properties . ((expression . ((type . "string")
+                                                  (description . "The Elisp expression to evaluate")))))
+                    (required . ("expression")))
+    :function #'mcp-server-emacs-tools--eval-elisp-handler)))
 
 (provide 'mcp-server-emacs-tools-eval-elisp)
 

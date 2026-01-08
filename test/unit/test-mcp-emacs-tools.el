@@ -21,6 +21,10 @@
 (require 'mcp-server-emacs-tools-eval-elisp)
 (require 'mcp-server-emacs-tools-diagnostics)
 
+;; Register tools for testing
+(mcp-server-emacs-tools--eval-elisp-register)
+(mcp-server-emacs-tools--diagnostics-register)
+
 ;;; mcp-server-register-tool Tests
 
 (ert-deftest mcp-test-register-tool-basic ()
