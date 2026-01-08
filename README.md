@@ -156,7 +156,10 @@ Retrieves errors and warnings from flycheck or flymake (auto-detected per buffer
 
 ## Security
 
-The MCP server implements comprehensive security measures to protect your Emacs environment and sensitive data from unauthorized access by LLMs.
+> [!WARNING]
+> The MCP server implements certain security measures to protect your Emacs environment and sensitive data from unauthorized access by LLMs.
+> However, the `eval-elisp` tool enables arbitrary evaluation of Elisp code in your Emacs process and therefore by definition enabling remote code execution for the LLM.
+> **Use this tool with extreme caution!**
 
 ### Security Features
 
