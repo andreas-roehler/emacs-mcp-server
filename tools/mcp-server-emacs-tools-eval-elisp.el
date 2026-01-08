@@ -28,7 +28,7 @@
   :input-schema '((type . "object")
                   (properties . ((expression . ((type . "string")
                                                 (description . "The Elisp expression to evaluate")))))
-                  (required . ("expression")))
+                  (required . ["expression"]))
   :function #'mcp-server-emacs-tools--eval-elisp-handler))
 
 (provide 'mcp-server-emacs-tools-eval-elisp)

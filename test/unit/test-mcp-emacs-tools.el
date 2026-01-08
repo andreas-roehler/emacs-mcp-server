@@ -239,11 +239,11 @@
    ;; With no filter, tool should be listed
    (let ((mcp-server-tools-filter nil))
      (should (cl-find "filter-test" (mcp-server-tools-list)
-                      :key (lambda (t) (alist-get 'name t)) :test #'equal)))
+                      :key (lambda (tool) (alist-get 'name tool)) :test #'equal)))
    ;; With filter that excludes it, tool should not be listed
    (let ((mcp-server-tools-filter (lambda (name) (not (equal name "filter-test")))))
      (should-not (cl-find "filter-test" (mcp-server-tools-list)
-                          :key (lambda (t) (alist-get 'name t)) :test #'equal)))))
+                          :key (lambda (tool) (alist-get 'name tool)) :test #'equal)))))
 
 (ert-deftest mcp-test-tools-filter-blocks-call ()
   "Test that disabled tools cannot be called."
