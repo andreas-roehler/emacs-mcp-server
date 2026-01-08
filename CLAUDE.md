@@ -28,8 +28,9 @@ The server uses a pluggable transport architecture:
 
 ### Tool and Security Framework
 - `mcp-server-tools.el` - Tool registry and execution framework
-- `mcp-server-emacs-tools.el` - Emacs-specific tool implementations
+- `mcp-server-emacs-tools.el` - Tool loader (loads tools from `tools/` directory)
 - `mcp-server-security.el` - Permission management and sandboxing
+- `tools/` - Individual tool implementations (self-registering modules)
 
 ## Essential Commands
 
@@ -87,10 +88,10 @@ The server supports multiple socket naming strategies via `mcp-server-socket-nam
 
 ## MCP Tool Registry
 
-The server exposes the following tool:
+The server exposes the following tools:
 
-### Elisp Execution
 - `eval-elisp` - Execute arbitrary Elisp expressions safely
+- `get-diagnostics` - Get flycheck/flymake diagnostics from project buffers
 
 ## Security Model
 
@@ -150,17 +151,34 @@ if client.connect() and client.initialize():
 ## Development Workflow
 
 ### Adding New Tools
+
+Create a new file in `tools/` directory:
+
 ```elisp
-(mcp-server-tools-register
- "tool-name"
- "Display Title"
- "Description of functionality"
- '((type . "object")
-   (properties . ((param . ((type . "string")))))
-   (required . ["param"]))
- (lambda (args)
-   (let ((param (alist-get 'param args)))
-     (format "Result: %s" param))))
+;;; tools/mcp-server-emacs-tools-my-tool.el
+(require 'mcp-server-tools)
+
+(defun mcp-server-emacs-tools--my-tool-handler (args)
+  "Handle my-tool invocation with ARGS."
+  (let ((param (alist-get 'param args)))
+    (format "Result: %s" param)))
+
+(mcp-server-register-tool
+ (make-mcp-server-tool
+  :name "my-tool"
+  :title "My Tool"
+  :description "Description of functionality"
+  :input-schema '((type . "object")
+                  (properties . ((param . ((type . "string")))))
+                  (required . ["param"]))
+  :function #'mcp-server-emacs-tools--my-tool-handler))
+
+(provide 'mcp-server-emacs-tools-my-tool)
+```
+
+Then add to `mcp-server-emacs-tools.el`:
+```elisp
+(require 'mcp-server-emacs-tools-my-tool)
 ```
 
 ### Testing Changes
@@ -185,22 +203,20 @@ mcp-server/
 ├── mcp-server-transport-tcp.el      # TCP transport (planned)
 ├── mcp-server-tools.el              # Tool registry and execution
 ├── mcp-server-security.el           # Security and sandboxing
-├── mcp-server-emacs-tools.el        # Emacs-specific tool implementations
+├── mcp-server-emacs-tools.el        # Tool loader (loads from tools/)
+├── tools/                           # Individual tool implementations
+│   ├── mcp-server-emacs-tools-eval-elisp.el      # eval-elisp tool
+│   └── mcp-server-emacs-tools-diagnostics.el     # get-diagnostics tool
 ├── test/                            # Test suite directory
 │   ├── config/                      # Test configuration files
-│   │   ├── test-config.el           # Main test configuration
-│   │   ├── minimal-test-config.el   # Minimal test configuration
-│   │   └── test-json-false.el       # JSON serialization tests
+│   ├── fixtures/                    # Test helpers and utilities
+│   ├── unit/                        # Unit tests
+│   │   ├── test-mcp-emacs-tools.el  # Tool-specific tests
+│   │   └── ...
 │   ├── scripts/                     # Test runner scripts
-│   │   ├── test-runner.sh           # Comprehensive test suite
-│   │   ├── start-test-server.sh     # Test server startup
-│   │   ├── test-hello-world.sh      # Hello world test
-│   │   ├── test-hello-world.py      # Python test script
-│   │   └── debug-test.py            # Debug test utilities
+│   │   └── test-runner.sh           # Comprehensive test suite
 │   └── integration/                 # Integration test scripts
-│       ├── test-unix-socket-fixed.sh # Fixed Unix socket tests
-│       ├── test-unix-socket.sh      # Original socket tests
-├── mcp-wrapper.py                   # Python wrapper for MCP clients  
+├── mcp-wrapper.py                   # Python wrapper for MCP clients
 └── mcp-wrapper.sh                   # Shell wrapper for MCP clients
 ```
 

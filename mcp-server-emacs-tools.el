@@ -4,32 +4,26 @@
 
 ;;; Commentary:
 
-;; This module provides Emacs-specific MCP tools.
+;; This module loads Emacs-specific MCP tools from the tools/ directory.
+;; Each tool self-registers when loaded via `mcp-server-register-tool'.
 
 ;;; Code:
 
 (require 'mcp-server-tools)
-(require 'mcp-server-security)
-(require 'cl-lib)
+
+;; Add tools directory to load path
+(let ((tools-dir (expand-file-name "tools" (file-name-directory load-file-name))))
+  (add-to-list 'load-path tools-dir))
+
+;; Load tool modules (each self-registers on load)
+(require 'mcp-server-emacs-tools-eval-elisp)
+(require 'mcp-server-emacs-tools-diagnostics)
 
 (defun mcp-server-emacs-tools-register ()
-  "Register all Emacs-specific MCP tools."
-  
-  ;; eval-elisp - Execute arbitrary elisp expressions
-  (mcp-server-tools-register
-   "eval-elisp"
-   "Execute Elisp Expression"
-   "Execute arbitrary Elisp code and return the result."
-   '((type . "object")
-     (properties . ((expression . ((type . "string")
-                                   (description . "The Elisp expression to evaluate")))))
-     (required . ("expression")))
-   (lambda (args)
-     (let ((expression (alist-get 'expression args)))
-       (condition-case err
-           (let ((form (read-from-string expression)))
-             (format "%S" (mcp-server-security-safe-eval (car form))))
-         (error (format "Error: %s" (error-message-string err))))))))
+  "Register Emacs MCP tools.
+This is a no-op kept for backward compatibility.
+Tools now self-register when their modules are loaded."
+  nil)
 
 (provide 'mcp-server-emacs-tools)
 

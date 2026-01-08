@@ -42,8 +42,29 @@
 
 ;;; Tool Registration
 
+(defun mcp-server-register-tool (tool)
+  "Register TOOL, an `mcp-server-tool' struct.
+This is the preferred declarative interface for tool registration.
+
+Example:
+  (mcp-server-register-tool
+   (make-mcp-server-tool
+    :name \"my-tool\"
+    :title \"My Tool\"
+    :description \"Does something useful.\"
+    :input-schema \\='((type . \"object\") ...)
+    :function #\\='my-tool-handler))"
+  (unless (mcp-server-tool-p tool)
+    (error "Expected mcp-server-tool struct, got %s" (type-of tool)))
+  (unless (mcp-server-tool-name tool)
+    (error "Tool must have a name"))
+  (puthash (mcp-server-tool-name tool) tool mcp-server-tools--registry)
+  tool)
+
 (defun mcp-server-tools-register (name title description input-schema function &optional output-schema annotations)
-  "Register a new MCP tool.
+  "Register a new MCP tool (legacy interface).
+Prefer `mcp-server-register-tool' for new tools.
+
 NAME is the unique tool identifier.
 TITLE is the human-readable display name.
 DESCRIPTION explains what the tool does.
@@ -51,16 +72,15 @@ INPUT-SCHEMA is a JSON Schema for validating inputs.
 FUNCTION is the elisp function to execute.
 OUTPUT-SCHEMA is an optional JSON Schema for outputs.
 ANNOTATIONS provide additional metadata."
-  (let ((tool (make-mcp-server-tool
-               :name name
-               :title title
-               :description description
-               :input-schema input-schema
-               :output-schema output-schema
-               :function function
-               :annotations annotations)))
-    (puthash name tool mcp-server-tools--registry)
-    tool))
+  (mcp-server-register-tool
+   (make-mcp-server-tool
+    :name name
+    :title title
+    :description description
+    :input-schema input-schema
+    :output-schema output-schema
+    :function function
+    :annotations annotations)))
 
 (defmacro mcp-server-tools-define (name title description input-schema &rest body)
   "Define a new MCP tool with NAME, TITLE, DESCRIPTION, INPUT-SCHEMA and BODY.
@@ -212,10 +232,9 @@ Returns a list of content items in MCP format."
 ;;; Initialization and Cleanup
 
 (defun mcp-server-tools-init ()
-  "Initialize the tools system."
-  (unless mcp-server-tools--initialized
-    (clrhash mcp-server-tools--registry)
-    (setq mcp-server-tools--initialized t)))
+  "Initialize the tools system.
+Tools registered before this call are preserved."
+  (setq mcp-server-tools--initialized t))
 
 (defun mcp-server-tools-cleanup ()
   "Clean up the tools system."

@@ -28,7 +28,7 @@ Alternatively, use package managers:
 ;; Using straight.el
 (use-package mcp-server
   :straight (:type git :host github :repo "rhblind/emacs-mcp-server"
-             :files ("*.el" "mcp-wrapper.py" "mcp-wrapper.sh"))
+             :files ("*.el" "tools/*.el" "mcp-wrapper.py" "mcp-wrapper.sh"))
   :config
   (add-hook 'emacs-startup-hook #'mcp-server-start-unix))
 
@@ -41,7 +41,7 @@ Alternatively, use package managers:
 ;; Using Doom Emacs package! macro
 (package! mcp-server
   :recipe (:type git :host github :repo "rhblind/emacs-mcp-server"
-           :files ("*.el" "mcp-wrapper.py" "mcp-wrapper.sh")))
+           :files ("*.el" "tools/*.el" "mcp-wrapper.py" "mcp-wrapper.sh")))
 ```
 
 **Start the server:** Run `M-x mcp-server-start-unix` in Emacs. The server creates a Unix socket at `~/.config/emacs/.local/cache/emacs-mcp-server.sock`. 
@@ -94,8 +94,41 @@ Once connected, LLMs can perform powerful operations in your Emacs environment:
 
 ## Available Tools
 
-**Current Tool:**
 - `eval-elisp` - Execute arbitrary elisp expressions safely and return the result
+- `get-diagnostics` - Get flycheck/flymake diagnostics from project buffers
+
+### get-diagnostics
+
+Retrieves errors and warnings from flycheck or flymake (auto-detected per buffer) across all project buffers. Results are grouped by file and sorted by severity.
+
+**Parameters:**
+| Parameter   | Type   | Required | Description                                   |
+|-------------|--------|----------|-----------------------------------------------|
+| `file_path` | string | No       | Get diagnostics for a specific file only      |
+| `severity`  | string | No       | Filter by `"error"`, `"warning"`, or `"info"` |
+
+**Example response:**
+```json
+{
+  "summary": {"total": 5, "errors": 2, "warnings": 3, "info": 0},
+  "files": {
+    "/path/to/file.el": {
+      "error_count": 2,
+      "warning_count": 1,
+      "info_count": 0,
+      "diagnostics": [
+        {
+          "line": 42,
+          "column": 10,
+          "message": "Unused variable 'foo'",
+          "severity": "warning",
+          "source": "emacs-lisp"
+        }
+      ]
+    }
+  }
+}
+```
 
 ## Configuration
 
@@ -368,17 +401,36 @@ print(response)
 **Quick test:** Run `./test/scripts/test-runner.sh` or test a specific socket with `./test/integration/test-unix-socket-fixed.sh ~/.emacs.d/.local/cache/emacs-mcp-server.sock`
 
 **Adding custom tools:**
+
+Create a new file in the `tools/` directory:
+
 ```elisp
-(mcp-server-tools-register
- "my-tool"
- "My Custom Tool"  
- "Description of what this tool does"
- '((type . "object")
-   (properties . ((param . ((type . "string")))))
-   (required . ["param"]))
- (lambda (args)
-   (let ((param (alist-get 'param args)))
-     (format "Result: %s" param))))
+;;; tools/mcp-server-emacs-tools-my-tool.el
+
+(require 'mcp-server-tools)
+
+(defun mcp-server-emacs-tools--my-tool-handler (args)
+  "Handle my-tool invocation with ARGS."
+  (let ((param (alist-get 'param args)))
+    (format "Result: %s" param)))
+
+(mcp-server-register-tool
+ (make-mcp-server-tool
+  :name "my-tool"
+  :title "My Custom Tool"
+  :description "Description of what this tool does"
+  :input-schema '((type . "object")
+                  (properties . ((param . ((type . "string")
+                                           (description . "A parameter")))))
+                  (required . ["param"]))
+  :function #'mcp-server-emacs-tools--my-tool-handler))
+
+(provide 'mcp-server-emacs-tools-my-tool)
+```
+
+Then add to `mcp-server-emacs-tools.el`:
+```elisp
+(require 'mcp-server-emacs-tools-my-tool)
 ```
 
 ## Troubleshooting
