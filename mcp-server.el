@@ -5,8 +5,8 @@
 ;; Author: Claude Code + Rolf Håvard Blindheim<rhblind@gmail.com>
 ;; URL: https://github.com/rhblind/emacs-mcp-server
 ;; Keywords: mcp, protocol, integration, tools
-;; Version: 0.3.0
-;; Package-Requires: ((emacs "28.1"))
+;; Version: 0.4.0
+;; Package-Requires: ((emacs "27.1"))
 
 ;; This file is NOT part of GNU Emacs.
 
@@ -61,7 +61,7 @@
 
 ;;; Constants
 
-(defconst mcp-server-version "0.3.0"
+(defconst mcp-server-version "0.4.0"
   "Version of the Emacs MCP server.")
 
 (defconst mcp-server-protocol-version "2024-11-05"
@@ -252,11 +252,12 @@ If DEBUG is non-nil, enable debug logging."
 ;;; Message Handling
 
 (defun mcp-server--handle-message (message &optional client-id)
-  "Handle incoming MCP MESSAGE from optional CLIENT-ID."
+  "Handle incoming MCP MESSAGE from optional CLIENT-ID.
+Uses `catch'/`throw' for early exit after successful response send."
   (mcp-server--debug "Handling message from %s: %s" (or client-id "unknown") message)
-  
+
   (condition-case err
-      (catch 'mcp-handled
+      (catch 'mcp-handled  ; throw here to exit after sending response
         (let ((method (alist-get 'method message))
               (id (alist-get 'id message))
               (params (alist-get 'params message)))
